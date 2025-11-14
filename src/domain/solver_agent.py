@@ -9,5 +9,6 @@ class SolverAgent(AgentBase):
     def process_message(self, message):
         return self.llm.invoke(prompt=message)
 
+
     def process_message_stream(self, message):
         return self.llm.invoke_stream(message)    
