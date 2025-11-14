@@ -1,4 +1,4 @@
-from .interface.llm import LlmInterface
+from ..interface.llm import LlmInterface
 from abc import ABC, abstractmethod
 
 

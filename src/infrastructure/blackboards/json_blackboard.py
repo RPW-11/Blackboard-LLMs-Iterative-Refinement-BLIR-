@@ -5,6 +5,8 @@ import json
 
 class JsonBlackboard(BlackboardInterface):
     def __init__(self, storage_path):
+        os.makedirs(storage_path, exist_ok=True)
+        print(f"Directory '{storage_path}' created or already exists.")
         super().__init__(storage_path)
 
 

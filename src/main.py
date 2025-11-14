@@ -1,8 +1,8 @@
 from config.llm_config import LlmConfig
 from infrastructure.llms.gemini import GeminiLlm
-from infrastructure.markdown_logger import print_markdown
 from infrastructure.blackboards.json_blackboard import JsonBlackboard
-from domain.solver_agent import SolverAgent
+from domain.agent import *
+from application.orchestrator import Orchestrator
 
 import os
 
@@ -10,18 +10,28 @@ import os
 llm_config = LlmConfig()
 
 gemini_llm = GeminiLlm(llm_config, model_name='gemini-2.0-flash')
-solver_agent = SolverAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "solver_prompt.md"))
-res = solver_agent.process_message_stream("Write a code to list down job occupancies in tech using any APIs")
 
+# Agents
+solver_agent = SolverAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "solver_prompt.md"))
+query_agent = QueryAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "query_prompt.md"))
+domain_exp_agent = DomainExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "domain_expert_prompt.md"))
+coding_exp_agent = CodingExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "coding_expert_prompt.md"))
+writer_agent = WriterAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "writer_prompt.md"))
+
+# Black boards
 json_blackboard = JsonBlackboard(os.path.join(os.getcwd(), "attempts"))
 
-code = ""
 
-for text in res:
-    print_markdown(text)
-    code += text
+orchestrator = Orchestrator(
+    solver_agent,
+    query_agent,
+    coding_exp_agent,
+    domain_exp_agent,
+    writer_agent,
+    json_blackboard
+)
 
-json_blackboard.save_attempt({ "code": code })
+orchestrator.run("Design a full webpage for an ecommerce that has a main theme of Global warming. Decide what contents should be there")
 
-print(json_blackboard.get_attempt_results())
+
 

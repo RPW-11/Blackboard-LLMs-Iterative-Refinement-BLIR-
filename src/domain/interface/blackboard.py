@@ -14,3 +14,5 @@ class BlackboardInterface(ABC):
     @abstractmethod
     def get_attempt_results(self, n:int = 10) -> str:
         pass
+
+    

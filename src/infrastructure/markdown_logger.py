@@ -77,7 +77,7 @@ class MarkdownTerminalRenderer:
                     marker = f"{self.colors['list']}•{self.colors['reset']}"
                 else:
                     match = self.patterns['ordered_list'].match(line.strip())
-                    marker = f"{self.colors['list']}{match.group(0).split('.')[0]}.{self.colors['reset']}"
+                    marker = f"{self.colors['list']}{match.group(0).split('.')[0]}.{self.colors['reset']}" if match else "-"
                 
                 content = self.patterns['unordered_list'].match(line.strip()) or self.patterns['ordered_list'].match(line.strip())
                 rendered_line = f"  {marker} {content.group(1)}"
