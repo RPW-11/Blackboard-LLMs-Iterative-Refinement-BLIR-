@@ -2,3 +2,5 @@ python-dotenv
 pydantic
 pydantic-settings
 google-genai
+numpy
+scikit-learn

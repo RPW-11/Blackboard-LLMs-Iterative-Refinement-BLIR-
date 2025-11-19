@@ -34,6 +34,7 @@ class Orchestrator:
 
         self.black_board.save_attempt({ "code": code })
 
+        # Load the attempt
         print("="*20 + "Query agent thinking..." + "="*20)
         query_prompt = self.query_agent.process_message(f"Probelm:\n{problem_definition}\n\nSolver code: {code}")
 
@@ -44,7 +45,12 @@ class Orchestrator:
         domain_feedback = self.domain_expert_agent.process_message(query_prompt.domain_expert_prompt)
         coding_feedback = self.coding_expert_agent.process_message(query_prompt.coding_expert_prompt)
 
+        print(f"Domain feedback:\n{domain_feedback}")
+        print(f"Coding feedback:\n{coding_feedback}")
+
         self.solver_prompt = self.writer_agent.process_feedback(domain_feedback, coding_feedback)
+
+        print(f"Final solver prompt:\n{self.solver_prompt}\n\n")
 
 
 

@@ -7,7 +7,7 @@ class CodingExpertAgent(AgentBase):
 
 
     def process_message(self, message) -> str:
-        return "Coding exp feedback"
+        return self.llm.invoke(message)
 
 
     def process_message_stream(self, message):

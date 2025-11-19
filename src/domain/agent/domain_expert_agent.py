@@ -7,7 +7,7 @@ class DomainExpertAgent(AgentBase):
 
     
     def process_message(self, message) -> str:
-        return "Domain feedback"
+        return self.llm.invoke(message)
 
 
     def process_message_stream(self, message):
