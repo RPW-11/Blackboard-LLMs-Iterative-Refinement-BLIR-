@@ -3,7 +3,8 @@ from infrastructure.llms.gemini import GeminiLlm
 from infrastructure.blackboards.json_blackboard import JsonBlackboard
 from infrastructure.util import parse_solomon_instance
 from domain.agent import *
-from application.orchestrator import Orchestrator
+from domain.problem.cvrp_ga import CVRPGeneticAlgorithm
+from domain.orchestrator.orchestrator import Orchestrator
 
 import os
 
@@ -35,9 +36,11 @@ orchestrator = Orchestrator(
 # Parser Solomon
 datasets = os.listdir("solomon_dataset")
 
-res = parse_solomon_instance(os.path.join("solomon_dataset", datasets[0]))
+instance = parse_solomon_instance(os.path.join("solomon_dataset", datasets[0]))
 
-print(res)
+ga = CVRPGeneticAlgorithm("None", orchestrator, instance, population_size=100)
+
+ga.solve()
 
 # orchestrator.run("Design a full webpage for an ecommerce that has a main theme of Global warming. Decide what contents should be there")
 

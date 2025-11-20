@@ -1,7 +1,9 @@
 import numpy as np
 from typing import List, Dict, Any, Callable, Tuple, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from .problem_base import Problem
+from domain.orchestrator.orchestrator import Orchestrator
+from domain.response.solver_agent_response import LargeAgentResponse
 
 
 @dataclass
@@ -34,11 +36,15 @@ class Solution:
         if self.metadata is None:
             self.metadata = {}
 
+    def to_dict(self) -> str:
+        return asdict(self)
+
 
 class CVRPGeneticAlgorithm(Problem):
     def __init__(
         self,
         description: str,
+        orchestrator: Orchestrator,
         instance: Instance,
         population_size: int = 200,
         max_generations: int = 500,
@@ -46,7 +52,7 @@ class CVRPGeneticAlgorithm(Problem):
         elite_size: int = 10,
         seed: Optional[int] = None
     ):  
-        super().__init__(description)
+        super().__init__(description, orchestrator)
         self.instance = instance
         self.population_size = population_size
         self.max_generations = max_generations
@@ -67,6 +73,48 @@ class CVRPGeneticAlgorithm(Problem):
         self.best_solution: Optional[Solution] = None
         self.instance_metadata = self._compute_instance_metadata()
 
+    def solve(self) -> Solution:
+        population = self.initial_population_generator()
+        population = [self._evaluate(chrom) for chrom in population]
+        self.population_history.append(population)
+
+        for gen in range(1, self.max_generations + 1):
+            self.generation = gen
+
+            # Adaptive large agent call
+            # if gen % self.large_agent_interval == 0 or gen == 1:
+            #     self._invoke_large_research_agent()
+
+            # Selection + Reproduction
+            offspring = []
+            while len(offspring) < self.population_size:
+                parent1 = self._tournament_selection(population)
+                parent2 = self._tournament_selection(population)
+                child_chrom = self._crossover(parent1, parent2)
+                # child_chrom = self._mutate(child_chrom)
+                # child_chrom = self.repair_operator(child_chrom)
+                # child_chrom = self.local_search_operator(child_chrom)
+                if (not any(c == -1 for c in child_chrom)):
+                    offspring.append(child_chrom)
+                # offspring.append(child_chrom)
+
+
+            offspring = [self._evaluate(chrom) for chrom in offspring]
+            population = self._survival_selection(population + offspring)
+            self.population_history.append(population)
+
+            current_best = min(population, key=lambda s: s.total_distance if s.feasible else float('inf'))
+            if self.best_solution is None or (current_best.feasible and current_best.total_distance < self.best_solution.total_distance):
+                self.best_solution = current_best
+
+            if gen % 50 == 0:
+                print(f"Gen {gen} | Best: {self.best_solution.total_distance:.2f} | Feas%: {np.mean([s.feasible for s in population]):.1%}")
+
+        
+        self.orchestrator.save_to_blackboard({"population": [p.to_dict() for p in population]})
+        self.orchestrator.run("Your are solving a GA problem about CVRP Salomon, please return answers based on the given structure", LargeAgentResponse)
+
+        return self.best_solution
 
     def _default_initial_population(self) -> List[List[int]]:
         customers = [c.id for c in self.instance.customers if c.id != 0]
@@ -160,7 +208,7 @@ class CVRPGeneticAlgorithm(Problem):
         if self.random_number_generator.random() < 0.8:
             op, _ = self._sample_operator(self.crossover_operators)
             return op(p1, p2)
-        return p1 if self.random_number_generator.random < 0.5 else p2
+        return p1 if self.random_number_generator.random() < 0.5 else p2
     
     def _mutate(self, chrom: List[int]) -> List[int]:
         if self.random_number_generator.random() < 0.2:
@@ -216,5 +264,8 @@ class CVRPGeneticAlgorithm(Problem):
     
     def get_best_result(self) -> Solution:
         return self.best_solution
+    
+    def apply_llm_response(self, response):
+        return super().apply_llm_response(response)
         
 

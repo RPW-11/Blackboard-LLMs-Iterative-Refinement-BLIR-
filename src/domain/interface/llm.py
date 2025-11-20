@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 class LlmInterface(ABC):
     @abstractmethod
-    def invoke(self, prompt: str, structure_schema:BaseModel=None):
+    def invoke(self, prompt: str, structure_schema:BaseModel=None) -> BaseModel | str:
         pass
     
 

@@ -1,15 +1,17 @@
 from abc import ABC, abstractmethod
-from pydantic import BaseModel
+from typing import Any
+from domain.orchestrator.orchestrator import Orchestrator
 
 
 class Problem(ABC):
-    def __init__(self, description: str):
+    def __init__(self, description: str, orchestrator: Orchestrator):
         self.description = description
+        self.orchestrator = orchestrator
 
     @abstractmethod
     def get_best_result(self)->dict:
         pass
 
     @abstractmethod
-    def apply_llm_response(self, response:BaseModel):
+    def solve(self) -> Any:
         pass
