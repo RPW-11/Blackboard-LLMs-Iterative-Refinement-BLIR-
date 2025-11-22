@@ -5,6 +5,7 @@ from pathlib import Path
 
 class LlmConfig(BaseSettings):
     GEMINI_API_KEY: str = Field(..., env="GEMINI_API_KEY")
+    OPENROUTER_API_KEY: str = Field(..., env="OPENROUTER_API_KEY")
     
     class Config:
         env_file = Path(__file__).parent.parent.parent / ".env"

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import List
 
 
 class BlackboardInterface(ABC):
@@ -12,7 +13,7 @@ class BlackboardInterface(ABC):
     
     
     @abstractmethod
-    def get_attempt_results(self, n:int = 10) -> str:
+    def get_attempt_results(self, n:int = 10) -> List[dict]:
         pass
 
     

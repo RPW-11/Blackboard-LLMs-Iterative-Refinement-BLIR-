@@ -9,9 +9,5 @@ class Problem(ABC):
         self.orchestrator = orchestrator
 
     @abstractmethod
-    def get_best_result(self)->dict:
-        pass
-
-    @abstractmethod
     def solve(self) -> Any:
         pass

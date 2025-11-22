@@ -38,11 +38,8 @@ datasets = os.listdir("solomon_dataset")
 
 instance = parse_solomon_instance(os.path.join("solomon_dataset", datasets[0]))
 
-ga = CVRPGeneticAlgorithm("None", orchestrator, instance, population_size=100)
+ga = CVRPGeneticAlgorithm("You are going to solve a CVRP with time window problem, specifically solomon 100 problem.", orchestrator, instance, population_size=100)
 
 ga.solve()
-
-# orchestrator.run("Design a full webpage for an ecommerce that has a main theme of Global warming. Decide what contents should be there")
-
 
 

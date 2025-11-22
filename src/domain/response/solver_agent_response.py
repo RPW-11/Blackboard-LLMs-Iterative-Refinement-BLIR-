@@ -11,7 +11,8 @@ class OperatorCode(BaseModel):
     @classmethod
     def must_be_def(cls, v: str) -> str:
         stripped = v.strip()
-        if not (stripped.startswith("def ") and "(" in stripped and ")" in stripped):
+        has_def = any(line.strip().startswith("def") for line in stripped.splitlines())
+        if not (has_def and "(" in stripped and ")" in stripped):
             raise ValueError("Code must be a complete 'def function_name(...):' block")
         return v
 
@@ -22,8 +23,6 @@ class ScheduleConfig(BaseModel):
 
 
 class LargeAgentResponse(BaseModel):
-    reasoning: str = Field(..., description="Step-by-step reasoning about why these operators are chosen for this instance class")
-
     crossover: List[OperatorCode] = Field(
         default_factory=list,
         description="New or updated crossover operators. Empty = keep current ones."

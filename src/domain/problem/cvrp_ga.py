@@ -1,9 +1,11 @@
 import numpy as np
+import time
 from typing import List, Dict, Any, Callable, Tuple, Optional
 from dataclasses import dataclass, asdict
 from .problem_base import Problem
 from domain.orchestrator.orchestrator import Orchestrator
 from domain.response.solver_agent_response import LargeAgentResponse
+from infrastructure.markdown_logger import print_markdown
 
 
 @dataclass
@@ -60,6 +62,7 @@ class CVRPGeneticAlgorithm(Problem):
         self.elite_size = elite_size
         self.random_number_generator = np.random.default_rng(seed)
         self.generation = 0
+        self.large_agent_interval = 50 # every 20 generations
 
         # LLM-generated components (below are just the default settings)
         self.initial_population_generator = self._default_initial_population
@@ -72,6 +75,7 @@ class CVRPGeneticAlgorithm(Problem):
         self.population_history: List[List[Solution]] = []
         self.best_solution: Optional[Solution] = None
         self.instance_metadata = self._compute_instance_metadata()
+        self.historical_data = []
 
     def solve(self) -> Solution:
         population = self.initial_population_generator()
@@ -82,8 +86,8 @@ class CVRPGeneticAlgorithm(Problem):
             self.generation = gen
 
             # Adaptive large agent call
-            # if gen % self.large_agent_interval == 0 or gen == 1:
-            #     self._invoke_large_research_agent()
+            if gen % self.large_agent_interval == 0 or gen == 1:
+                self._invoke_orchestrator()
 
             # Selection + Reproduction
             offspring = []
@@ -91,9 +95,9 @@ class CVRPGeneticAlgorithm(Problem):
                 parent1 = self._tournament_selection(population)
                 parent2 = self._tournament_selection(population)
                 child_chrom = self._crossover(parent1, parent2)
-                # child_chrom = self._mutate(child_chrom)
-                # child_chrom = self.repair_operator(child_chrom)
-                # child_chrom = self.local_search_operator(child_chrom)
+                child_chrom = self._mutate(child_chrom)
+                child_chrom = self.repair_operator(child_chrom)
+                child_chrom = self.local_search_operator(child_chrom)
                 if (not any(c == -1 for c in child_chrom)):
                     offspring.append(child_chrom)
                 # offspring.append(child_chrom)
@@ -111,8 +115,7 @@ class CVRPGeneticAlgorithm(Problem):
                 print(f"Gen {gen} | Best: {self.best_solution.total_distance:.2f} | Feas%: {np.mean([s.feasible for s in population]):.1%}")
 
         
-        self.orchestrator.save_to_blackboard({"population": [p.to_dict() for p in population]})
-        self.orchestrator.run("Your are solving a GA problem about CVRP Salomon, please return answers based on the given structure", LargeAgentResponse)
+        self._save_population_to_memory(population)
 
         return self.best_solution
 
@@ -173,6 +176,62 @@ class CVRPGeneticAlgorithm(Problem):
             dist += np.hypot(a.x - b.x, a.y - b.y)
         return dist
     
+    def _invoke_orchestrator(self):
+        context = {
+            "instance_metadata": self.instance_metadata,
+            "current_generation": self.generation,
+            "population_stats": self._summarize_population(self.population_history[-1]),
+            "historical_patterns": self._summarize_historical_data(),
+            "current_operators": [
+                {"type": "crossover", "func": op.__name__ if hasattr(op, "__name__") else "lambda", "prob": prob}
+                for op, prob in self.crossover_operators
+            ] + [
+                {"type": "mutation", "func": op.__name__ if hasattr(op, "__name__") else "lambda", "prob": prob}
+                for op, prob in self.mutation_operators
+            ],
+            "best_so_far": self.best_solution.total_distance if self.best_solution else None,
+        }
+
+        prompt = f"You are trying to solve a CVRP problem as described in the following\n{self.description}\n The following is the current information of the solving process:\nContext:\n {context}\nTry to write down crossover functions or mutation functions in the specified format!"
+
+        print("="*50 + f"Running the LLM using the following prompt:" + "="*50)
+        print(prompt)
+
+        result = self.orchestrator.run(prompt, LargeAgentResponse)
+
+        if not result:
+            print("="*50 + f"There is an LLM error, using default values..." + "="*50)
+            return
+        
+        result = LargeAgentResponse.model_validate(result)
+
+        print("="*50 + f"Crossover result" + "="*50)
+        if len(result.crossover) == 0:
+            print("No crossover method")
+
+        for cross in result.crossover:
+            print_markdown(f"Function Name: {cross.name}")
+            print_markdown(f"Function Prob: {cross.prob}")
+            print_markdown(cross.code)
+
+            func = self._create_function_safely(cross.code, cross.name)
+            if not func:
+                print("Error creating the function!")
+                continue
+
+            self.crossover_operators.append((func, cross.prob))
+
+    def _create_function_safely(self, func_string, func_name):
+        local_scope = {}
+        try:
+            exec(func_string, globals(), local_scope)
+            return local_scope.get(func_name) or globals().get(func_name)
+        except Exception as e:
+            print(f"Error creating function: {e}")
+            return None
+
+
+
     # TOURNAMENT LOGICS
     def _tournament_selection(self, population: List[Solution]) -> List[int]:
         candidates: List[Solution] = self.random_number_generator.choice(population, size=self.tournament_size, replace=False)
@@ -221,13 +280,14 @@ class CVRPGeneticAlgorithm(Problem):
         idx = self.random_number_generator.choice(len(operators), p=np.array(probs)/sum(probs))
         return operators[idx]
     
-    #
+    # LLM's codes
     def _basic_capacity_repair(self, chromosome: List[int]) -> List[int]:
         """Extract overloaded customers and reinsert with cheapest insertion."""
-        pass  # LLM will replace this
+        return chromosome
 
     def _noop_local_search(self, chromosome: List[int]) -> List[int]:
         return chromosome
+    
     
     def _compute_instance_metadata(self) -> Dict[str, Any]:
         cust = [c for c in self.instance.customers if c.id != 0]
@@ -262,10 +322,50 @@ class CVRPGeneticAlgorithm(Problem):
             return "C" # clustered
         return "R" # random
     
-    def get_best_result(self) -> Solution:
-        return self.best_solution
+    def _summarize_population(self, populations: List[Solution]) -> Dict[str, Any]:
+        feasible = [s for s in populations if s.feasible]
+        return {
+            "feasibility_rate": len(feasible) / len(populations),
+            "best_distance": min((s.total_distance for s in feasible), default=float('inf')),
+            "avg_distance": np.mean([s.total_distance for s in feasible]) if feasible else None,
+            "avg_vehicles": np.mean([s.num_vehicles for s in feasible]) if feasible else None,
+        }
+
+    def _summarize_historical_data(self) -> List[Dict]:
+        self._load_memory()
+        return [
+            {
+                "instance_type": h["instance_type"],
+                "best_distance": h["best_distance"],
+                "operators_used": h["operators_used"],
+            }
+            for h in self.historical_data[-50:]
+        ]
     
-    def apply_llm_response(self, response):
-        return super().apply_llm_response(response)
+    def _save_population_to_memory(self, population: List[Solution]):
+        entry = {
+            "timestamp": time.time(),
+            "instance_name": self.instance.name,
+            "n_customers": self.instance_metadata["n_customers"],
+            "instance_type": self.instance_metadata["instance_type"],
+            "population_avg_feasibility": np.mean([s.feasible for s in population]),
+            "best_distance": min((s.total_distance for s in population if s.feasible), default=float('inf')),
+            "avg_distance": np.mean([s.total_distance for s in population if s.feasible]),
+            "operators_used": [
+                {"type": "crossover", "name": op.__name__ if hasattr(op, "__name__") else str(op)}
+                for op, _ in self.crossover_operators
+            ] + [
+                {"type": "mutation", "name": op.__name__ if hasattr(op, "__name__") else str(op)}
+                for op, _ in self.mutation_operators
+            ],
+            "metadata": self.instance_metadata,
+        }
+
+        self.orchestrator.save_to_blackboard(entry)
+
+    def _load_memory(self):
+        self.historical_data = self.orchestrator.load_results(1)
+        
+    
         
 

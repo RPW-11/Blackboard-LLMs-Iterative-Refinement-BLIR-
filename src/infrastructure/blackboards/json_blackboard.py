@@ -1,4 +1,5 @@
 from domain.interface.blackboard import BlackboardInterface
+from typing import List
 import os
 import json
 
@@ -16,26 +17,26 @@ class JsonBlackboard(BlackboardInterface):
             json.dump(data, f, indent=4)
 
 
-    def get_attempt_results(self, n = 10) -> str:
-        """Get last n attempts and format them into a string, separated by a new line"""
+    def get_attempt_results(self, n = 10) -> List[dict]:
+        """Get last n attempts and format them into a dict"""
         trials = os.listdir(self.storage_path)
-        trials.sort()
-        trials = trials[-n:] if n < len(trials) else trials
+        trials_no = [int(trial.split("_")[0]) for trial in trials]
+        trials_no.sort()
 
-        attempts_str = ""
-        for trial in trials:
-            with open(os.path.join(self.storage_path, trial), 'r') as file:
-                attempt_no = trial.split("_")[0]
-                attempts_str += "=" * 14 + f"ATTEMPT {attempt_no}" + "=" * 14 + "\n"
-                attempts_str += file.read() + "\n"
+        attempts = []
+        for no in trials_no[-n:]:
+            with open(os.path.join(self.storage_path, f"{no}_attempt.json"), 'r') as file:
+                data = json.load(file)
+                attempts.append(data)
 
-        return attempts_str
+        return attempts
     
     
     def _get_file_name(self) -> str:
         """Get the last name from the blackboard"""
         trials = os.listdir(self.storage_path)
-        trials.sort()
-        attempt_no = int(trials[-1].split("_")[0]) if len(trials) > 0 else 0
+        trials_no = [int(trial.split("_")[0]) for trial in trials]
+        trials_no.sort()
+        attempt_no = trials_no[-1] if len(trials_no) > 0 else 0
 
         return os.path.join(self.storage_path, f"{attempt_no + 1}_attempt.json")

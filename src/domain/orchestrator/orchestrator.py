@@ -2,6 +2,7 @@ from domain.agent import *
 from domain.interface.blackboard import BlackboardInterface
 from infrastructure.markdown_logger import print_markdown
 from pydantic import BaseModel
+from typing import List
 
 
 class Orchestrator:
@@ -23,43 +24,20 @@ class Orchestrator:
         self.solver_prompt = ""
 
 
-    def run(self, problem_definition: str, response_structure: BaseModel) -> dict:
-        distRes = self.solver_agent.process_message_structured(problem_definition, response_structure)
-        print("Response:\n")
-        print(distRes)
-        # res = self.solver_agent.process_message_stream(
-        #     f"Problem:\n{problem_definition}\n\nInstruction:\n{self.solver_prompt}\n\n" if self.solver_prompt != "" else  f"Problem:\n{problem_definition}\n\n" 
-        # )
-
-        # code = ""
-        # for text in res:
-        #     print_markdown(text)
-        #     code += text
-
-        # self.black_board.save_attempt({ "code": code })
-
-        # # Load the attempt
-        # print("="*20 + "Query agent thinking..." + "="*20)
-        # query_prompt = self.query_agent.process_message(f"Probelm:\n{problem_definition}\n\nSolver code: {code}")
-
-        # print(f"Domain expert prompt:\n{query_prompt.domain_expert_prompt}\n\n")
-        # print(f"Coding expert prompt:\n{query_prompt.coding_expert_prompt}")
-
-        # # should be async processing
-        # domain_feedback = self.domain_expert_agent.process_message(query_prompt.domain_expert_prompt)
-        # coding_feedback = self.coding_expert_agent.process_message(query_prompt.coding_expert_prompt)
-
-        # print(f"Domain feedback:\n{domain_feedback}")
-        # print(f"Coding feedback:\n{coding_feedback}")
-
-        # self.solver_prompt = self.writer_agent.process_feedback(domain_feedback, coding_feedback)
-
-        # print(f"Final solver prompt:\n{self.solver_prompt}\n\n")
-
-        return distRes
+    def run(self, problem_definition: str, response_structure: BaseModel) -> dict | None:
+        try:
+            distRes = self.solver_agent.process_message_structured(problem_definition, response_structure)
+            return distRes
+        
+        except Exception as e:
+            print(f"Error from LLM: {e}")
+            return None
 
     def save_to_blackboard(self, data: dict):
         self.black_board.save_attempt(data)
+
+    def load_results(self, n: int) -> List[dict]:
+        return self.black_board.get_attempt_results(n)
 
 
 
