@@ -1,11 +1,13 @@
 import numpy as np
 import time
+import json
+import random
 from typing import List, Dict, Any, Callable, Tuple, Optional
 from dataclasses import dataclass, asdict
 from .problem_base import Problem
 from domain.orchestrator.orchestrator import Orchestrator
 from domain.response.solver_agent_response import LargeAgentResponse
-from infrastructure.markdown_logger import print_markdown
+from domain.interface.logger import LoggerInterface
 
 
 @dataclass
@@ -47,6 +49,7 @@ class CVRPGeneticAlgorithm(Problem):
         self,
         description: str,
         orchestrator: Orchestrator,
+        logger: LoggerInterface,
         instance: Instance,
         population_size: int = 200,
         max_generations: int = 500,
@@ -54,7 +57,7 @@ class CVRPGeneticAlgorithm(Problem):
         elite_size: int = 10,
         seed: Optional[int] = None
     ):  
-        super().__init__(description, orchestrator)
+        super().__init__(description, orchestrator, logger)
         self.instance = instance
         self.population_size = population_size
         self.max_generations = max_generations
@@ -98,9 +101,7 @@ class CVRPGeneticAlgorithm(Problem):
                 child_chrom = self._mutate(child_chrom)
                 child_chrom = self.repair_operator(child_chrom)
                 child_chrom = self.local_search_operator(child_chrom)
-                if (not any(c == -1 for c in child_chrom)):
-                    offspring.append(child_chrom)
-                # offspring.append(child_chrom)
+                offspring.append(child_chrom)
 
 
             offspring = [self._evaluate(chrom) for chrom in offspring]
@@ -163,7 +164,7 @@ class CVRPGeneticAlgorithm(Problem):
             total_distance=total_dist,
             feasible=feasible,
             num_vehicles=len(routes),
-            metadata={"split_type": "greedy"}
+            metadata={"split_type": "greedy", "chromosome": chromosome.copy()}
         )
     
     def _route_distance(self, route: List[int]) -> float:
@@ -177,7 +178,7 @@ class CVRPGeneticAlgorithm(Problem):
         return dist
     
     def _invoke_orchestrator(self):
-        context = {
+        context = json.dumps({
             "instance_metadata": self.instance_metadata,
             "current_generation": self.generation,
             "population_stats": self._summarize_population(self.population_history[-1]),
@@ -190,36 +191,87 @@ class CVRPGeneticAlgorithm(Problem):
                 for op, prob in self.mutation_operators
             ],
             "best_so_far": self.best_solution.total_distance if self.best_solution else None,
-        }
+        }, indent=4)
 
-        prompt = f"You are trying to solve a CVRP problem as described in the following\n{self.description}\n The following is the current information of the solving process:\nContext:\n {context}\nTry to write down crossover functions or mutation functions in the specified format!"
+        prompt = f"""
+        You are trying to solve a CVRP problem as described in the following:
+        {self.description}
+        
+        The following is the current information of the solving process:
+        Context:
+        {context}
+        
+        The following are variables that you can use to write down your functions (must be accessed with 'self'):
+        self.instance
+        self.population_size = population_size
+        self.max_generations = max_generations
+        self.tournament_size = tournament_size
+        self.elite_size = elite_size
 
-        print("="*50 + f"Running the LLM using the following prompt:" + "="*50)
-        print(prompt)
+        These are some types used in the class:
+        class Customer:
+            id: int
+            x: float
+            y: float
+            demand: int
+            ready_time: float = 0.0
+            due_time: float = 0.0
+            service_time: float = 0.0
+
+        class Instance:
+            name: str
+            depot: Customer
+            customers: List[Customer]
+            vehicle_capacity: int
+            num_vehicles: int = 1000
+
+        class Solution:
+            routes: List[List[int]]
+            total_distance: float = 0.0
+            feasible: bool = False
+            num_vehicles: int = 0
+            metadata: Dict[str, Any] = None
+        
+        For writing the crossover operators, the arguments must only be parent 1 and parent 2, both having a type of List[int].
+        The same way for writing mutation operators, where the input is a chromosome with a type of List[int].
+        Below are some examples:
+        1. Crossover function:
+        def crossover_a(self, parent1: List[int], parent2: List[int]) -> List[int]:
+            ....
+        
+        2. Mutation function:
+        def mutation_a(self, chromosome: List[int]) -> List[int]:
+            ...
+        """.strip()
+
+        # self.logger.print("="*50 + f"Running the LLM using the following prompt:" + "="*50)
+        # self.logger.print(prompt)
 
         result = self.orchestrator.run(prompt, LargeAgentResponse)
 
         if not result:
-            print("="*50 + f"There is an LLM error, using default values..." + "="*50)
+            self.logger.print("="*50 + f"There is an LLM error, using default values..." + "="*50)
             return
         
         result = LargeAgentResponse.model_validate(result)
 
-        print("="*50 + f"Crossover result" + "="*50)
-        if len(result.crossover) == 0:
-            print("No crossover method")
+        self._log_result(result)
 
         for cross in result.crossover:
-            print_markdown(f"Function Name: {cross.name}")
-            print_markdown(f"Function Prob: {cross.prob}")
-            print_markdown(cross.code)
-
             func = self._create_function_safely(cross.code, cross.name)
             if not func:
-                print("Error creating the function!")
+                self.logger.print("Error creating crossover function!")
                 continue
 
             self.crossover_operators.append((func, cross.prob))
+        
+        for mutation in result.mutation:
+            func = self._create_function_safely(mutation.code, mutation.name)
+            if not func:
+                self.logger.print("Error creating mutation function!")
+                continue
+
+            self.mutation_operators.append((func, mutation.prob))
 
     def _create_function_safely(self, func_string, func_name):
         local_scope = {}
@@ -230,15 +282,54 @@ class CVRPGeneticAlgorithm(Problem):
             print(f"Error creating function: {e}")
             return None
 
+    def _log_result(self, response: LargeAgentResponse):
+        self.logger.print("="*50 + f"Crossover result" + "="*50)
+        if len(response.crossover) == 0:
+            self.logger.print("No crossover method")
+        
+        for cross in response.crossover:
+            self.logger.print(f"Function Name: {cross.name}")
+            self.logger.print(f"Function Prob: {cross.prob}")
+            self.logger.print(cross.code)
+        
+        self.logger.print("="*100)
+
+        # Mutation result
+        self.logger.print("="*50 + f"Mutation result" + "="*50)
+        if len(response.mutation) == 0:
+            self.logger.print("No mutation method")
+        
+        for mut in response.mutation:
+            self.logger.print(f"Function Name: {mut.name}")
+            self.logger.print(f"Function Prob: {mut.prob}")
+            self.logger.print(mut.code)
+        
+        self.logger.print("="*100)
+
+        # Repair result
+        self.logger.print("="*50 + f"Repair code" + "="*50)
+        self.logger.print(response.repair if response.repair else "No repair method")
+
+        self.logger.print("="*100)
+
+        # Local search result
+        self.logger.print("="*50 + f"Local Search code" + "="*50)
+        self.logger.print(response.local_search if response.local_search else "No local search method")
+        
+        self.logger.print("="*100)
 
 
     # TOURNAMENT LOGICS
     def _tournament_selection(self, population: List[Solution]) -> List[int]:
         candidates: List[Solution] = self.random_number_generator.choice(population, size=self.tournament_size, replace=False)
-        valid = [s for s in candidates if s.feasible]
-        if valid:
-            return min(valid, key=lambda s:s.total_distance).routes[0]
-        return min(candidates, key=lambda s: s.total_distance).routes[0]
+        
+        feasible_candidates = [s for s in candidates if s.feasible]
+        if feasible_candidates:
+            winner = min(feasible_candidates, key=lambda s: s.total_distance)
+        else:
+            winner = min(candidates, key=lambda s: s.total_distance)
+        
+        return winner.metadata["chromosome"]
     
     def _survival_selection(self, combined: List[Solution]) -> List[Solution]:
         combined = sorted(combined, key=lambda s: (not s.feasible, s.total_distance))
@@ -264,16 +355,24 @@ class CVRPGeneticAlgorithm(Problem):
         return chrom
     
     def _crossover(self, p1: List[int], p2: List[int]) -> List[int]:
-        if self.random_number_generator.random() < 0.8:
-            op, _ = self._sample_operator(self.crossover_operators)
-            return op(p1, p2)
-        return p1 if self.random_number_generator.random() < 0.5 else p2
+        try:
+            if self.random_number_generator.random() < 0.8:
+                op, _ = self._sample_operator(self.crossover_operators)
+                return op(p1, p2)
+            return p1 if self.random_number_generator.random() < 0.5 else p2
+        except Exception as e:
+            # self.logger.print(f"Error applying crossover from LLM: {str(e)}\nFall back to default..")
+            return self._order_crossover(p1, p2)
     
     def _mutate(self, chrom: List[int]) -> List[int]:
-        if self.random_number_generator.random() < 0.2:
-            op, _ = self._sample_operator(self.mutation_operators)
-            return op(chrom)
-        return chrom
+        try:
+            if self.random_number_generator.random() < 0.2:
+                op, _ = self._sample_operator(self.mutation_operators)
+                return op(chrom)
+            return chrom
+        except Exception as e:
+            # self.logger.print(f"Error applying mutation from LLM: {str(e)}\nFall back to default..")
+            return self._swap_mutation(chrom)
 
     def _sample_operator(self, operators):
         probs = [p for _, p in operators]

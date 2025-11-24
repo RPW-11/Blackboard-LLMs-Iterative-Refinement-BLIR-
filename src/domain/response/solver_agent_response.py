@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class OperatorCode(BaseModel):
-    code: str = Field(..., description="Complete Python function definition as a string. Must be executable with exec().")
+    code: str = Field(..., description="Complete Python function definition as a string. Must be executable with exec(). No need to import libraries since all necessary libraries have been imported.")
     prob: float = Field(..., ge=0.0, le=1.0, description="Probability weight for selecting this operator.")
     name: Optional[str] = Field(None, description="Optional human-readable name, e.g. 'cluster_preserving_cx'")
 
@@ -25,12 +25,12 @@ class ScheduleConfig(BaseModel):
 class LargeAgentResponse(BaseModel):
     crossover: List[OperatorCode] = Field(
         default_factory=list,
-        description="New or updated crossover operators. Empty = keep current ones."
+        description="New or updated crossover operators. Empty = keep current ones. If there is only one operator, you must write another one"
     )
 
     mutation: List[OperatorCode] = Field(
         default_factory=list,
-        description="New or updated mutation operators. Empty = keep current."
+        description="New or updated mutation operators. Empty = keep current ones."
     )
 
     repair: Optional[str] = Field(

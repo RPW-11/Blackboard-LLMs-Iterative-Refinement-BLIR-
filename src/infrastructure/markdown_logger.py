@@ -1,6 +1,8 @@
+from domain.interface.logger import LoggerInterface
 import re
 
-class MarkdownTerminalRenderer:
+
+class MarkdownTerminalRenderer(LoggerInterface):
     def __init__(self):
         # ANSI color codes
         self.colors = {
@@ -85,6 +87,10 @@ class MarkdownTerminalRenderer:
             output_lines.append(rendered_line)
         
         return '\n'.join(output_lines)
+    
+    def print(self, msg):
+        formatted_msg = self.render(msg)
+        print(formatted_msg)
     
     def _parse_line(self, line: str) -> str:
         """Parse a single line of markdown."""
