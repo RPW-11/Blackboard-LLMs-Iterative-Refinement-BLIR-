@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field, field_validator
 class OperatorCode(BaseModel):
     code: str = Field(..., description="Complete Python function definition as a string. Must be executable with exec(). No need to import libraries since all necessary libraries have been imported.")
     prob: float = Field(..., ge=0.0, le=1.0, description="Probability weight for selecting this operator.")
-    name: Optional[str] = Field(None, description="Optional human-readable name, e.g. 'cluster_preserving_cx'")
+    name: str = Field(None, description="name must be the same as the name of the function. For instance, 'def _create', then the name must be '_create'")
 
     @field_validator("code")
     @classmethod
@@ -33,9 +33,9 @@ class LargeAgentResponse(BaseModel):
         description="New or updated mutation operators. Empty = keep current ones."
     )
 
-    repair: Optional[str] = Field(
+    repair: Optional[OperatorCode] = Field(
         None,
-        description="Full 'def repair(chromosome: List[int]) -> List[int]: ...' function as string. None = no change."
+        description="Full 'def _repair(chromosome: List[int]) -> List[int]: ...' function as string. None = no change."
     )
 
     local_search: Optional[str] = Field(

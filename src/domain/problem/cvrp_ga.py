@@ -2,46 +2,16 @@ import numpy as np
 import time
 import json
 import random
+import math
+import collections
 from typing import List, Dict, Any, Callable, Tuple, Optional
-from dataclasses import dataclass, asdict
 from .problem_base import Problem
+from .cvrp_llm_prompt import get_llm_prompt
+from .cvrp_type import Customer, Instance, Solution
+from .cvrp_repair import CVRPRepair
 from domain.orchestrator.orchestrator import Orchestrator
 from domain.response.solver_agent_response import LargeAgentResponse
 from domain.interface.logger import LoggerInterface
-
-
-@dataclass
-class Customer:
-    id: int
-    x: float
-    y: float
-    demand: int
-    ready_time: float = 0.0
-    due_time: float = 0.0
-    service_time: float = 0.0
-
-@dataclass
-class Instance:
-    name: str
-    depot: Customer
-    customers: List[Customer]
-    vehicle_capacity: int
-    num_vehicles: int = 1000
-
-@dataclass
-class Solution:
-    routes: List[List[int]]
-    total_distance: float = 0.0
-    feasible: bool = False
-    num_vehicles: int = 0
-    metadata: Dict[str, Any] = None
-
-    def __post_init__(self):
-        if self.metadata is None:
-            self.metadata = {}
-
-    def to_dict(self) -> str:
-        return asdict(self)
 
 
 class CVRPGeneticAlgorithm(Problem):
@@ -65,14 +35,12 @@ class CVRPGeneticAlgorithm(Problem):
         self.elite_size = elite_size
         self.random_number_generator = np.random.default_rng(seed)
         self.generation = 0
-        self.large_agent_interval = 50 # every 20 generations
+        self.large_agent_interval = 100 
+        self.cvrp_repair = CVRPRepair(instance)
 
-        # LLM-generated components (below are just the default settings)
-        self.initial_population_generator = self._default_initial_population
         self.crossover_operators: List[Tuple[Callable, float]] = [(self._order_crossover, 1.0)]
         self.mutation_operators: List[Tuple[Callable, float]] = [(self._swap_mutation, 1.0)]
-        self.repair_operator = self._basic_capacity_repair
-        self.local_search_operator = self._noop_local_search
+        self.repair_operator = self._smart_capacity_repair
 
         # History and metadata
         self.population_history: List[List[Solution]] = []
@@ -81,7 +49,7 @@ class CVRPGeneticAlgorithm(Problem):
         self.historical_data = []
 
     def solve(self) -> Solution:
-        population = self.initial_population_generator()
+        population = self._default_initial_population()
         population = [self._evaluate(chrom) for chrom in population]
         self.population_history.append(population)
 
@@ -100,7 +68,6 @@ class CVRPGeneticAlgorithm(Problem):
                 child_chrom = self._crossover(parent1, parent2)
                 child_chrom = self._mutate(child_chrom)
                 child_chrom = self.repair_operator(child_chrom)
-                child_chrom = self.local_search_operator(child_chrom)
                 offspring.append(child_chrom)
 
 
@@ -149,15 +116,17 @@ class CVRPGeneticAlgorithm(Problem):
 
         if current_route:
             routes.append(current_route)
-
+        
         total_dist = 0.0
         for route in routes:
             dist = self._route_distance([0] + route + [0])
             total_dist += dist
 
         feasible = all(sum(customers[c].demand for c in route) <= capacity for route in routes)
+
         if chromosome:
-            feasible = feasible and len(set(chromosome)) == len(self.instance.customers) - 1
+            feasible = feasible and len(set(chromosome)) == len(self.instance.customers)
+        
 
         return Solution(
             routes=routes,
@@ -193,70 +162,24 @@ class CVRPGeneticAlgorithm(Problem):
             "best_so_far": self.best_solution.total_distance if self.best_solution else None,
         }, indent=4)
 
-        prompt = f"""
-        You are trying to solve a CVRP problem as described in the following:
-        {self.description}
-        
-        The following is the current information of the solving process:
-        Context:
-        {context}
-        
-        The following are variables that you can use to write down your functions (must be accessed with 'self'):
-        self.instance
-        self.population_size = population_size
-        self.max_generations = max_generations
-        self.tournament_size = tournament_size
-        self.elite_size = elite_size
+        prompt = get_llm_prompt(self.description, context)
 
-        These are some types used in the class:
-        class Customer:
-            id: int
-            x: float
-            y: float
-            demand: int
-            ready_time: float = 0.0
-            due_time: float = 0.0
-            service_time: float = 0.0
-
-        class Instance:
-            name: str
-            depot: Customer
-            customers: List[Customer]
-            vehicle_capacity: int
-            num_vehicles: int = 1000
-
-        class Solution:
-            routes: List[List[int]]
-            total_distance: float = 0.0
-            feasible: bool = False
-            num_vehicles: int = 0
-            metadata: Dict[str, Any] = None
-        
-        For writing the crossover operators, the arguments must only be parent 1 and parent 2, both having a type of List[int].
-        The same way for writing mutation operators, where the input is a chromosome with a type of List[int].
-        Below are some examples:
-        1. Crossover function:
-        def crossover_a(self, parent1: List[int], parent2: List[int]) -> List[int]:
-            ....
-        
-        2. Mutation function:
-        def mutation_a(self, chromosome: List[int]) -> List[int]:
-            ...
-        """.strip()
-
-        # self.logger.print("="*50 + f"Running the LLM using the following prompt:" + "="*50)
-        # self.logger.print(prompt)
+        self.logger.print("="*50 + f"Running the LLM using the following prompt:" + "="*50)
+        self.logger.print(prompt)
+        self.logger.print("=" * 100)
 
         result = self.orchestrator.run(prompt, LargeAgentResponse)
 
         if not result:
             self.logger.print("="*50 + f"There is an LLM error, using default values..." + "="*50)
+            self.logger.print("=" * 100)
             return
         
         result = LargeAgentResponse.model_validate(result)
 
         self._log_result(result)
 
+        self.logger.print("Creating crossover functions....")
         for cross in result.crossover:
             func = self._create_function_safely(cross.code, cross.name)
             if not func:
@@ -265,6 +188,7 @@ class CVRPGeneticAlgorithm(Problem):
 
             self.crossover_operators.append((func, cross.prob))
         
+        self.logger.print("Creating mutation functions....")
         for mutation in result.mutation:
             func = self._create_function_safely(mutation.code, mutation.name)
             if not func:
@@ -272,15 +196,33 @@ class CVRPGeneticAlgorithm(Problem):
                 continue
 
             self.mutation_operators.append((func, mutation.prob))
+        
+        if result.repair:
+            self.logger.print("Creating repair function....")
+            func = self._create_function_safely(result.repair.code, result.repair.name)
+            if not func:
+                self.logger.print("Error creating repair function!")
+            else:
+                self.repair_operator = func
+
 
     def _create_function_safely(self, func_string, func_name):
         local_scope = {}
         try:
             exec(func_string, globals(), local_scope)
-            return local_scope.get(func_name) or globals().get(func_name)
-        except Exception as e:
-            print(f"Error creating function: {e}")
+            func = local_scope.get(func_name)
+            
+            if func and callable(func):
+                # Bind the function to the current instance
+                bound_func = func.__get__(self, type(self))
+                # Replace the method on the instance
+                setattr(self, func_name, bound_func)
+                return bound_func
             return None
+        except Exception as e:
+            self.logger.print(f"Error creating function: {str(e)}")
+            return None
+
 
     def _log_result(self, response: LargeAgentResponse):
         self.logger.print("="*50 + f"Crossover result" + "="*50)
@@ -308,7 +250,11 @@ class CVRPGeneticAlgorithm(Problem):
 
         # Repair result
         self.logger.print("="*50 + f"Repair code" + "="*50)
-        self.logger.print(response.repair if response.repair else "No repair method")
+        if response.repair:
+            self.logger.print(f"Function Name: {response.repair.name}")
+            self.logger.print(response.repair.code)
+        else:
+            self.logger.print("No repair method")
 
         self.logger.print("="*100)
 
@@ -379,10 +325,54 @@ class CVRPGeneticAlgorithm(Problem):
         idx = self.random_number_generator.choice(len(operators), p=np.array(probs)/sum(probs))
         return operators[idx]
     
-    # LLM's codes
-    def _basic_capacity_repair(self, chromosome: List[int]) -> List[int]:
-        """Extract overloaded customers and reinsert with cheapest insertion."""
-        return chromosome
+    def _smart_capacity_repair(self, chromosome: List[int]) -> List[int]:
+        """
+        High-quality capacity repair for giant-tour (flat permutation) representation.
+        
+        Strategy:
+        1. Try to respect the original order as much as possible.
+        2. Whenever adding the next customer would exceed capacity → close current route,
+        start a new one (depot return implied).
+        3. Never violate capacity (guarantees 100% feasibility).
+        
+        This is the classic "Best Insertion + Greedy Splitting" hybrid used in top GAs.
+        But we do it in a way that still keeps the relative order mostly intact.
+        """
+        if not chromosome:
+            return []
+
+        capacity = self.instance.vehicle_capacity
+        customers = {c.id: c for c in self.instance.customers}
+        
+        repaired = []
+        current_load = 0
+        current_route_customers = []
+
+        for cust_id in chromosome:
+            demand = customers[cust_id].demand
+
+            # If adding this customer would violate capacity and we are not in an empty route
+            if current_load + demand > capacity and current_route_customers:
+                # Close current route
+                repaired.extend(current_route_customers)
+                # Start new route
+                current_route_customers = []
+                current_load = 0
+
+            # Add customer to current route
+            current_route_customers.append(cust_id)
+            current_load += demand
+
+        # Don't forget the last route
+        repaired.extend(current_route_customers)
+
+        # Sanity check: all customers are still present exactly once
+        if sorted(repaired) != sorted(chromosome):
+            # Very rare fallback: just return a random permutation (should never happen)
+            repaired = chromosome[:]
+            random.shuffle(repaired)
+
+        return repaired
 
     def _noop_local_search(self, chromosome: List[int]) -> List[int]:
         return chromosome
@@ -449,6 +439,7 @@ class CVRPGeneticAlgorithm(Problem):
             "instance_type": self.instance_metadata["instance_type"],
             "population_avg_feasibility": np.mean([s.feasible for s in population]),
             "best_distance": min((s.total_distance for s in population if s.feasible), default=float('inf')),
+            "n_vehicles": len(population[np.argmin(s.total_distance for s in population if s.feasible)].routes),
             "avg_distance": np.mean([s.total_distance for s in population if s.feasible]),
             "operators_used": [
                 {"type": "crossover", "name": op.__name__ if hasattr(op, "__name__") else str(op)}

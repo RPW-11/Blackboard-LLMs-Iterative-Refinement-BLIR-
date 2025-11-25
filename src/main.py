@@ -13,15 +13,15 @@ import os
 
 llm_config = LlmConfig()
 
-gemini_llm = GeminiLlm(llm_config, model_name='gemini-2.0-flash')
+gemini_llm = GeminiLlm(llm_config, model_name='gemini-2.5-flash')
 qwen_llm = OpenRouterLlm(llm_config)
 
 # Agents
-solver_agent = SolverAgent(qwen_llm, os.path.join(os.getcwd(), "prompts", "solver_prompt.md"))
-query_agent = QueryAgent(qwen_llm, os.path.join(os.getcwd(), "prompts", "query_prompt.md"))
-domain_exp_agent = DomainExpertAgent(qwen_llm, os.path.join(os.getcwd(), "prompts", "domain_expert_prompt.md"))
-coding_exp_agent = CodingExpertAgent(qwen_llm, os.path.join(os.getcwd(), "prompts", "coding_expert_prompt.md"))
-writer_agent = WriterAgent(qwen_llm, os.path.join(os.getcwd(), "prompts", "writer_prompt.md"))
+solver_agent = SolverAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "solver_prompt.md"))
+query_agent = QueryAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "query_prompt.md"))
+domain_exp_agent = DomainExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "domain_expert_prompt.md"))
+coding_exp_agent = CodingExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "coding_expert_prompt.md"))
+writer_agent = WriterAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "writer_prompt.md"))
 
 # Black boards
 json_blackboard = JsonBlackboard(os.path.join(os.getcwd(), "attempts"))
