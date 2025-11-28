@@ -7,8 +7,7 @@ import collections
 from typing import List, Dict, Any, Callable, Tuple, Optional
 from .problem_base import Problem
 from .cvrp_llm_prompt import get_llm_prompt
-from .cvrp_type import Customer, Instance, Solution
-from .cvrp_repair import CVRPRepair
+from .cvrp_type import Instance, Solution
 from domain.orchestrator.orchestrator import Orchestrator
 from domain.response.solver_agent_response import LargeAgentResponse
 from domain.interface.logger import LoggerInterface
@@ -36,7 +35,6 @@ class CVRPGeneticAlgorithm(Problem):
         self.random_number_generator = np.random.default_rng(seed)
         self.generation = 0
         self.large_agent_interval = 100 
-        self.cvrp_repair = CVRPRepair(instance)
 
         self.crossover_operators: List[Tuple[Callable, float]] = [(self._order_crossover, 1.0)]
         self.mutation_operators: List[Tuple[Callable, float]] = [(self._swap_mutation, 1.0)]
@@ -67,7 +65,7 @@ class CVRPGeneticAlgorithm(Problem):
                 parent2 = self._tournament_selection(population)
                 child_chrom = self._crossover(parent1, parent2)
                 child_chrom = self._mutate(child_chrom)
-                child_chrom = self.repair_operator(child_chrom)
+                child_chrom = self._repair(child_chrom)
                 offspring.append(child_chrom)
 
 
@@ -81,9 +79,8 @@ class CVRPGeneticAlgorithm(Problem):
 
             if gen % 50 == 0:
                 print(f"Gen {gen} | Best: {self.best_solution.total_distance:.2f} | Feas%: {np.mean([s.feasible for s in population]):.1%}")
+                self._save_population_to_memory(population)
 
-        
-        self._save_population_to_memory(population)
 
         return self.best_solution
 
@@ -258,12 +255,6 @@ class CVRPGeneticAlgorithm(Problem):
 
         self.logger.print("="*100)
 
-        # Local search result
-        self.logger.print("="*50 + f"Local Search code" + "="*50)
-        self.logger.print(response.local_search if response.local_search else "No local search method")
-        
-        self.logger.print("="*100)
-
 
     # TOURNAMENT LOGICS
     def _tournament_selection(self, population: List[Solution]) -> List[int]:
@@ -307,7 +298,6 @@ class CVRPGeneticAlgorithm(Problem):
                 return op(p1, p2)
             return p1 if self.random_number_generator.random() < 0.5 else p2
         except Exception as e:
-            # self.logger.print(f"Error applying crossover from LLM: {str(e)}\nFall back to default..")
             return self._order_crossover(p1, p2)
     
     def _mutate(self, chrom: List[int]) -> List[int]:
@@ -317,7 +307,6 @@ class CVRPGeneticAlgorithm(Problem):
                 return op(chrom)
             return chrom
         except Exception as e:
-            # self.logger.print(f"Error applying mutation from LLM: {str(e)}\nFall back to default..")
             return self._swap_mutation(chrom)
 
     def _sample_operator(self, operators):
@@ -326,18 +315,6 @@ class CVRPGeneticAlgorithm(Problem):
         return operators[idx]
     
     def _smart_capacity_repair(self, chromosome: List[int]) -> List[int]:
-        """
-        High-quality capacity repair for giant-tour (flat permutation) representation.
-        
-        Strategy:
-        1. Try to respect the original order as much as possible.
-        2. Whenever adding the next customer would exceed capacity → close current route,
-        start a new one (depot return implied).
-        3. Never violate capacity (guarantees 100% feasibility).
-        
-        This is the classic "Best Insertion + Greedy Splitting" hybrid used in top GAs.
-        But we do it in a way that still keeps the relative order mostly intact.
-        """
         if not chromosome:
             return []
 
@@ -351,31 +328,28 @@ class CVRPGeneticAlgorithm(Problem):
         for cust_id in chromosome:
             demand = customers[cust_id].demand
 
-            # If adding this customer would violate capacity and we are not in an empty route
             if current_load + demand > capacity and current_route_customers:
-                # Close current route
                 repaired.extend(current_route_customers)
-                # Start new route
                 current_route_customers = []
                 current_load = 0
 
-            # Add customer to current route
             current_route_customers.append(cust_id)
             current_load += demand
 
-        # Don't forget the last route
         repaired.extend(current_route_customers)
 
-        # Sanity check: all customers are still present exactly once
         if sorted(repaired) != sorted(chromosome):
-            # Very rare fallback: just return a random permutation (should never happen)
             repaired = chromosome[:]
             random.shuffle(repaired)
 
         return repaired
 
-    def _noop_local_search(self, chromosome: List[int]) -> List[int]:
-        return chromosome
+    def _repair(self, chromosome: List[int]) -> List[int]:
+        try:
+            return self.repair_operator(chromosome)
+        except Exception as e:
+            self.logger.print(f"Error using LLM's repair function :{str(e)}, falling back to default")
+            return self._smart_capacity_repair(chromosome)
     
     
     def _compute_instance_metadata(self) -> Dict[str, Any]:
@@ -451,7 +425,7 @@ class CVRPGeneticAlgorithm(Problem):
             "metadata": self.instance_metadata,
         }
 
-        self.orchestrator.save_to_blackboard(entry)
+        self.orchestrator.save_to_blackboard(entry, file_name=f"{self.generation}_gen_population.json")
 
     def _load_memory(self):
         self.historical_data = self.orchestrator.load_results(1)

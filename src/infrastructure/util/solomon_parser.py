@@ -1,4 +1,4 @@
-from domain.problem.cvrp_ga import Instance, Customer
+from domain.problem.cvrp_type import Instance, Customer
 import re
 from pathlib import Path
 

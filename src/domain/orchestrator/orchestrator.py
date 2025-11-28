@@ -33,8 +33,8 @@ class Orchestrator:
             print(f"Error from LLM: {e}")
             return None
 
-    def save_to_blackboard(self, data: dict):
-        self.black_board.save_attempt(data)
+    def save_to_blackboard(self, data: dict, file_name: str = None):
+        self.black_board.save_attempt(data, file_name)
 
     def load_results(self, n: int) -> List[dict]:
         return self.black_board.get_attempt_results(n)

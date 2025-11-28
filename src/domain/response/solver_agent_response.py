@@ -25,12 +25,12 @@ class ScheduleConfig(BaseModel):
 class LargeAgentResponse(BaseModel):
     crossover: List[OperatorCode] = Field(
         default_factory=list,
-        description="New or updated crossover operators. Empty = keep current ones. If there is only one operator, you must write another one"
+        description="New or updated crossover operators. Empty = keep current ones. If you think no crossover is needed, return an empty list. Please write only one crossover operator at a time"
     )
 
     mutation: List[OperatorCode] = Field(
         default_factory=list,
-        description="New or updated mutation operators. Empty = keep current ones."
+        description="New or updated mutation operators. Empty = keep current ones. If you think no mutation is needed, return an empty list. Please write only one mutation operator at a time"
     )
 
     repair: Optional[OperatorCode] = Field(

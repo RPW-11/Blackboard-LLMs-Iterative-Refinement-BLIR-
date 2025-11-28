@@ -8,7 +8,7 @@ class BlackboardInterface(ABC):
 
     
     @abstractmethod
-    def save_attempt(self, data):
+    def save_attempt(self, data, file_name: str = None):
         pass
     
     

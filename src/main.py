@@ -38,7 +38,7 @@ orchestrator = Orchestrator(
 
 # Parser Solomon
 datasets = os.listdir("problems/solomon/dataset")
-instance = parse_solomon_instance(os.path.join("problems/solomon/dataset", datasets[0]))
+instance = parse_solomon_instance(os.path.join("problems/solomon/dataset", datasets[1]))
 description = read_md("problems/solomon/description.md")
 
 # Logger
