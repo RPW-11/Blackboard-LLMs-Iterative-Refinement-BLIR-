@@ -23,29 +23,43 @@ domain_exp_agent = DomainExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prom
 coding_exp_agent = CodingExpertAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "coding_expert_prompt.md"))
 writer_agent = WriterAgent(gemini_llm, os.path.join(os.getcwd(), "prompts", "writer_prompt.md"))
 
-# Black boards
-json_blackboard = JsonBlackboard(os.path.join(os.getcwd(), "attempts"))
-
-# Orchestrator
-orchestrator = Orchestrator(
-    solver_agent,
-    query_agent,
-    coding_exp_agent,
-    domain_exp_agent,
-    writer_agent,
-    json_blackboard
-)
-
 # Parser Solomon
 datasets = os.listdir("problems/solomon/dataset")
-instance = parse_solomon_instance(os.path.join("problems/solomon/dataset", datasets[1]))
-description = read_md("problems/solomon/description.md")
 
-# Logger
-logger = MarkdownTerminalRenderer()
+for file in datasets[:2]:
+    filename = file.split(".")[0]
 
-ga = CVRPGeneticAlgorithm(description, orchestrator, logger, instance, population_size=100)
+    if (os.path.exists(os.path.join(os.getcwd(), "attempts", filename))):
+        continue
 
-ga.solve()
+    # Black boards
+    json_blackboard = JsonBlackboard(os.path.join(os.getcwd(), "attempts", filename))
+
+    # Orchestrator
+    orchestrator = Orchestrator(
+        solver_agent,
+        query_agent,
+        coding_exp_agent,
+        domain_exp_agent,
+        writer_agent,
+        json_blackboard
+    )
+
+
+    instance = parse_solomon_instance(os.path.join("problems/solomon/dataset", datasets[1]))
+    description = read_md("problems/solomon/description.md")
+
+    # Logger
+    logger = MarkdownTerminalRenderer()
+
+    ga = CVRPGeneticAlgorithm(description, orchestrator, logger, instance, population_size=100)
+
+    result = ga.solve()
+
+    for route in result.routes:
+        print("Route:", route)
+
+    print("Total Distance:", result.total_distance)
+    print("Total Vehicles:", result.num_vehicles)
 
 

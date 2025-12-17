@@ -34,7 +34,7 @@ class CVRPGeneticAlgorithm(Problem):
         self.elite_size = elite_size
         self.random_number_generator = np.random.default_rng(seed)
         self.generation = 0
-        self.large_agent_interval = 100 
+        self.large_agent_interval = 50 
 
         self.crossover_operators: List[Tuple[Callable, float]] = [(self._order_crossover, 1.0)]
         self.mutation_operators: List[Tuple[Callable, float]] = [(self._swap_mutation, 1.0)]
