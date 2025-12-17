@@ -1,3 +1,7 @@
+**Important**
+
+Before running the code, you need to create a `.env` file containing your `GEMINI_API_KEY`.
+
 ## How to run the code
 
 First, you need to set up a Python virtual environment. The current project uses Python 3.11.
